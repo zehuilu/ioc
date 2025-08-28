@@ -2,9 +2,13 @@ function [rank, completed, errorCode] = validateCompletion(Hhat, gamma, delta, d
 % Evaluates recovery matrix rank to determine whether it is possible to
 % recover weights or more points are necessary
 
+    % Uses SVD of H
     s = svd(Hhat);
     s = sort(s);
-    
+
+    % Paper eq. (24): κ(t,l) = σ2/σ1 >= γ
+    % Here implemented as rank test with thresholds gamma, delta
+
     % These are the conditions outlined in paper. However, Wanxin's
     % implementation uses slightly different conditions
     rank = abs(s(2)/s(1));

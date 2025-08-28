@@ -19,6 +19,10 @@ function [weights, residual, x, H, f] = computeWeights(Hhat, numWeights)
 % % % end
 % % % 
 
+    % Solves quadratic program:
+    % min ||H*[ω;λ]|| with constraints sum(ω)=1, ω≥0
+    % (Paper eq. (25): constrained minimization with normalization)
+
     sumcons=1;
     n=size(Hhat,2);
     H=Hhat'*Hhat;

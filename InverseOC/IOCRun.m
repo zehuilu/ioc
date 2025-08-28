@@ -41,7 +41,10 @@ function IOCRun(trialInfo, savePath)
     end
     
     trialInfo.trueWeights = (trialInfo.weights)'/sum(trialInfo.weights);
-    
+
+    % Initialization
+    % trialInfo, model, data loaded
+    % (Paper Sec. II: Problem formulation, eqs. (1)–(3))
     % Initialization of threshold and condition variables
     dt = trajT(2) - trajT(1);
 
@@ -63,7 +66,8 @@ function IOCRun(trialInfo, savePath)
     
     trialInfo.lenDof = size(trajX, 2)/2;
     trialInfo.hWant = (size(trajX, 2) + trialInfo.numWeights) * trialInfo.dimWeights;
-    
+
+    % Precompute features & dynamics (Paper Sec. II, union feature φ(x,u))
     iocFeatures = ioc.calcFeatures(trajX(precalcAllFrames, :), trajU(precalcAllFrames, :));
     iocDynamics = ioc.calcDynamics(trajX(precalcAllFrames, :), trajU(precalcAllFrames, :));
  
@@ -79,7 +83,9 @@ function IOCRun(trialInfo, savePath)
         saveInds(1, 1) = 1;
         saveInds(1, 2) = frameInds(end);
     end
-    
+
+    % Precompute gradients for recovery matrix construction
+    % (Paper eqs. (11)–(12): H1, H2 depend on ∂f/∂x, ∂f/∂u, ∂φ/∂x, ∂φ/∂u)
     % precalc singular H1 and H2 matrix
     precalcGradient = precalculateGradient_initialize(trajX, trajU, ioc, 1:trialInfo.maxWinLen, trialInfo);
     
@@ -94,9 +100,12 @@ function IOCRun(trialInfo, savePath)
     processSecondaryVar(frameInds(end)).H1 = [];
     processSecondaryVar(frameInds(end)).H2 = [];
     processSecondaryVar(frameInds(end)).H = [];
-    
+
+    % Loop over trajectory frames (Paper Sec. IV: Sliding window over trajectory)
     % assemble and assess H
     for indFrame = frameInds
+        % Incrementally build recovery matrix H(t,l)
+        % (Paper eq. (10): H = [H1 H2], updated via eq. (14))
         [progressVar(indFrame), processSecondaryVar(indFrame), precalcGradient] = calcWinLenAndH(trajT, trajX, trajU, dt, ioc, indFrame - 1, precalcGradient, trialInfo);
         
         % save either on the regular intervals, or at the last frame
@@ -461,7 +470,9 @@ function [progressVar, processSecondaryVar, precalcGradient] = calcWinLenAndH(tr
     frameIndsFullRange = frameIndsFullRange(frameIndsFullRange <= trialInfo.frameInds(end)+trialInfo.maxWinLen);
     
     precalcGradient = precalculateGradient_pushpop(trajX, trajU, ioc, precalcGradient, frameIndsFullRange);
-    
+
+    % Expanding window length l
+    % (Paper Sec. IV.A: adaptive window, inner loop increasing l(t))
     for i = 1:trialInfo.maxWinLen
         % determine the current window to check
         switch trialInfo.hWinAdvFlag
@@ -515,7 +526,9 @@ function [progressVar, processSecondaryVar, precalcGradient] = calcWinLenAndH(tr
             H1 = [];
             H2 = [];
         end
-        
+
+        % Assemble recovery matrix
+        % (Paper eqs. (10)–(12))
         % assemble H matrix
         [H, H1, H2] = assembleHMatrixWithPrecalc(H1, H2, currFullWinInds, precalcGradient);
 %         [H, H1, H2] = assembleHMatrix(trajT, trajX, trajU, dt, ioc, H1, H2, currFullWinInds, trajH1, trajH2, trialInfo);
@@ -527,7 +540,9 @@ function [progressVar, processSecondaryVar, precalcGradient] = calcWinLenAndH(tr
         else
             hitMaxWinLen = 0;
         end
-        
+
+        % Check rank condition
+        % (Paper eq. (18): l_min(t) found when rank(H) = r+n-1)
         % check H matrix for completion
         [progressVar] = checkHMatrix(H, currFullWinInds, trialInfo, hitMaxWinLen);
         
@@ -536,7 +551,8 @@ function [progressVar, processSecondaryVar, precalcGradient] = calcWinLenAndH(tr
             processSecondaryVar.H2 = H2;
             processSecondaryVar.H = H;
 %             processSecondaryVar.Hhat = Hhat; %  Hhat = H/norm(H,'fro');
-            
+
+            % Successful recovery (Paper Lemma 1, eq. (19))
             break;
         end
     end
@@ -591,6 +607,9 @@ function [H, H1, H2] = assembleHMatrixWithPrecalc(H1, H2, fullWinInds, precalcGr
         precalcGradient(currFrame).dp_dx, ...
         precalcGradient(currFrame).dp_du, H1, H2);
 
+    % Uses precomputed ∂f/∂x, ∂f/∂u, ∂φ/∂x, ∂φ/∂u
+    % to iteratively build H1, H2 (Paper eq. (14): iterative property)
+    % Paper eq. (10)
     H = [H1 -H2];
 end
 
@@ -598,9 +617,11 @@ function [progressVar] = checkHMatrix(H, fullWinInds, trialInfo, hitMaxWinLen)
     progressVar = [];
 
     % proceed with H matrix inversion
+    % (Paper eq. (24): normalize H using Frobenius norm)
     Hhat = H/norm(H,'fro');
 
     % Compute weights using final recovery matrix
+    % (Paper eq. (25): minimize ||H*[ω;λ]|| subject to sum ω = 1)
     [weights, ~] = computeWeights(Hhat, trialInfo.numWeights);
     % weightTraj(indFrame, :) = weights/sum(weights);
 
@@ -647,6 +668,10 @@ function [progressVar] = checkHMatrix(H, fullWinInds, trialInfo, hitMaxWinLen)
     end
         
     if completed
+        % Save recovered weights ω̂(t)
+        % (Paper eq. (27): ω̂(t) = computed weights if l_min(t)<l_max, else carry over ω̂(t-1))
+
+
 %         progressVar.Hhat = Hhat;
         progressVar.weights = weights'/sum(weights);
 %         progressVar.winIndsStart = fullWinInds(1);
